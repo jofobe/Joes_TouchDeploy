@@ -6,105 +6,167 @@
 
 ---
 
-## Current Status
+# Current Status
 
 Sprint 1 - Authentication
 
 Status:
 
-Project setup complete.
+**COMPLETE**
 
-No networking code has been written yet.
-
----
-
-## Completed
-
-* GitHub repository created.
-* Local repository cloned.
-* Visual Studio solution created.
-* .NET 8 solution.
-* Console project created.
-* Core project created.
-* Project reference configured.
-* Repository connected correctly.
-* .gitignore created.
-* Initial project structure established.
-* Models folder created.
-* Services folder created.
-* PanelConnection model created.
-* AuthenticationService placeholder created.
-* Solution builds successfully.
-
-Build Status:
-
-SUCCESS
-
-2 projects
-0 errors
+Joe's TouchDeploy successfully authenticates to a Crestron TS-1070 using direct HTTPS communication.
 
 ---
 
-## Current Architecture
+# Completed
 
-Solution
+## Project
+
+* GitHub repository established
+* Visual Studio solution created
+* .NET 8 solution
+* Git workflow established
+* Developer handoff process established
+
+## Architecture
+
+Projects
 
 * JoesTouchDeploy.Console
 * JoesTouchDeploy.Core
 
-Core
+Core folders
 
-Models
+* Models
+* Networking
+* Services
 
-* PanelConnection
+## Networking
 
-Services
+Implemented:
 
-* AuthenticationService
-
----
-
-## Design Decisions
-
-* C#
-* .NET 8
-* WPF (future UI)
-* SQLite (future)
+* PanelClient
 * HTTPS communication
-* Direct communication with Crestron panels
-* Do not automate Toolbox
-* Authentication via POST /userlogin.html
-* Upload via POST /Device/DeviceOperations
-* Cookie-based session management
-* Reliability over speed
+* Self-signed certificate handling
+* CookieContainer
+* Session persistence
+
+Verified:
+
+* GET /userlogin.html
+* POST /userlogin.html
+
+Authentication cookies successfully received:
+
+* TRACKID
+* userstr
+* userid
+* iv
+* tag
+* AuthByPasswd
+
+Authentication confirmed successful.
 
 ---
 
-## Next Milestone
+# Current Architecture
 
-Sprint 1.2
+Console
 
-Create CrestronHttpClient
+↓
 
-Responsibilities
+AuthenticationService
 
-* Own HttpClient
-* Own CookieContainer
-* Handle HTTPS certificate validation for managed Crestron devices
-* Provide reusable authenticated connection
+↓
 
-No upload functionality yet.
+PanelClient
 
----
+↓
 
-## Definition of Done
-
-Joe's TouchDeploy can authenticate to a TSW-1070 and establish a valid session.
+Crestron Panel
 
 ---
 
-## Notes
+# Proven
 
-The project intentionally progresses in small, testable milestones.
+* HTTPS connectivity
+* Session creation
+* Authentication
+* Cookie persistence
+* Authenticated requests
 
-Every milestone must compile and be verified before moving to the next.
+No dependency on Crestron Toolbox.
+
+---
+
+# Outstanding Cleanup
+
+Remove temporary console debug output from PanelClient.
+
+Replace with proper logging later.
+
+---
+
+# Next Sprint
+
+Sprint 2
+
+Connection Validation
+
+Goals
+
+* Validate panel reachable
+* Validate credentials
+* Return ValidationResult
+
+After validation:
+
+Implement UploadService.
+
+---
+
+# Long-Term Roadmap
+
+Authentication ✅
+
+Connection Validation
+
+VTZ Upload
+
+Restart Detection
+
+Deployment Engine
+
+SQLite Database
+
+WPF UI
+
+Multi-panel Deployment
+
+Version 1.0
+
+---
+
+# Important Discovery
+
+Authentication sequence:
+
+GET /userlogin.html
+
+↓
+
+Receive TRACKID
+
+↓
+
+POST /userlogin.html
+
+↓
+
+Receive authentication cookies
+
+↓
+
+Authenticated requests succeed
+
+This protocol has been successfully implemented.
