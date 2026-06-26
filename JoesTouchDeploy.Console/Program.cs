@@ -55,3 +55,10 @@ foreach (Cookie cookie in cookies)
 {
     Console.WriteLine($"{cookie.Name} = {cookie.Value}");
 }
+
+Console.WriteLine();
+Console.WriteLine("Requesting authenticated page...");
+
+var devicePage = await client.GetDevicePageAsync(ip);
+
+Console.WriteLine($"Downloaded {devicePage.Length:N0} characters.");

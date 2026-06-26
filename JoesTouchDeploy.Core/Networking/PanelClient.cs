@@ -33,6 +33,17 @@ public class PanelClient
         return await response.Content.ReadAsStringAsync();
     }
 
+    public async Task<string> GetDevicePageAsync(string ipAddress)
+    {
+        var response = await _httpClient.GetAsync($"https://{ipAddress}/index_device.html");
+
+        Console.WriteLine($"Device Page Status: {(int)response.StatusCode}");
+
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadAsStringAsync();
+    }
+
     public async Task<HttpResponseMessage> PostFormAsync(
         string ipAddress,
         string username,
