@@ -1,0 +1,23 @@
+# Visual Studio
+.vs/
+
+# Build results
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+
+# Visual Studio cache
+*.db
+*.opendb
+
+# Rider
+.idea/
+
+# ReSharper
+_ReSharper*/
+
+# Logs
+*.log
