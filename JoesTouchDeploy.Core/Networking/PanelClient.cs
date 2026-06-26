@@ -26,8 +26,6 @@ public class PanelClient
     {
         var response = await _httpClient.GetAsync($"https://{ipAddress}/userlogin.html");
 
-        Console.WriteLine($"GET Status: {(int)response.StatusCode}");
-
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadAsStringAsync();
