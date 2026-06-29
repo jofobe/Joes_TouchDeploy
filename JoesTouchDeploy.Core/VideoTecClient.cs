@@ -12,6 +12,7 @@ public class VideoTecClient
     private readonly PanelConnection _connection;
     private readonly LoginService _loginService;
     private readonly DeviceInformationService _deviceInformationService;
+    private readonly CurrentProjectInformationService _currentProjectInformationService;
     private readonly ProjectUploadService _projectUploadService;
     private AuthenticationResult? _authenticationResult;
 
@@ -27,6 +28,7 @@ public class VideoTecClient
         _deviceInformationService = new DeviceInformationService(
             httpSession,
             connection.IpAddress);
+        _currentProjectInformationService = new CurrentProjectInformationService(httpSession);
         _projectUploadService = new ProjectUploadService(
             httpSession,
             logger,
@@ -108,6 +110,38 @@ public class VideoTecClient
         catch (TaskCanceledException exception)
         {
             return CreateFailure<DeviceInformation>("The device information request timed out.", exception);
+        }
+    }
+
+    public async Task<OperationResult<CurrentProjectInformation>> GetCurrentProjectInformationAsync()
+    {
+        if (_authenticationResult?.Success != true)
+        {
+            throw new InvalidOperationException("Login must complete before retrieving current project information.");
+        }
+
+        try
+        {
+            var projectInformation = await _currentProjectInformationService.GetCurrentProjectInformationAsync();
+
+            return new OperationResult<CurrentProjectInformation>
+            {
+                Success = true,
+                Message = "Current project information retrieved successfully.",
+                Data = projectInformation
+            };
+        }
+        catch (HttpRequestException exception)
+        {
+            return CreateFailure<CurrentProjectInformation>(exception.Message, exception);
+        }
+        catch (JsonException exception)
+        {
+            return CreateFailure<CurrentProjectInformation>("Current project response could not be parsed.", exception);
+        }
+        catch (TaskCanceledException exception)
+        {
+            return CreateFailure<CurrentProjectInformation>("The current project information request timed out.", exception);
         }
     }
 

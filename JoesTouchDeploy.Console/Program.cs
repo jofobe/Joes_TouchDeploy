@@ -2,6 +2,8 @@
 using JoesTouchDeploy.Core;
 using JoesTouchDeploy.Core.Logging;
 using JoesTouchDeploy.Core.Models;
+using JoesTouchDeploy.Core.Services;
+using JoesTouchDeploy.Core.Utilities;
 
 internal class Program
 {
@@ -34,7 +36,10 @@ internal class Program
 
         var logger = new DebugLogger(debugOutputDirectory);
         var videoTecClient = new VideoTecClient(connection, logger);
+        var deploymentService = new DeploymentService(videoTecClient, logger);
         var fileDialogService = new JoesTouchDeploy.Console.FileDialogService();
+        var vtzAnalyzer = new VtzAnalyzer(debugOutputDirectory);
+        var vtzProjectReader = new VtzProjectReader(debugOutputDirectory);
 
         Console.WriteLine();
         Console.WriteLine("Authenticating...");
@@ -86,19 +91,59 @@ internal class Program
             }
 
             Console.WriteLine($"Selected project file: {projectFilePath}");
+
+            Console.Write("Analyze the selected VTZ file before upload? (y/N): ");
+            var analyzeResponse = Console.ReadLine();
+
+            if (analyzeResponse?.Equals("y", StringComparison.OrdinalIgnoreCase) == true ||
+                analyzeResponse?.Equals("yes", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var analysisResult = await vtzAnalyzer.AnalyzeAsync(projectFilePath);
+
+                Console.WriteLine("VTZ analysis complete.");
+                Console.WriteLine($"Detected format : {analysisResult.DetectedFormat}");
+                Console.WriteLine($"Recognized archive : {analysisResult.IsRecognizedArchive}");
+                Console.WriteLine($"Entry count : {analysisResult.EntryCount}");
+                Console.WriteLine($"Analysis report : {analysisResult.ReportPath}");
+
+                if (analysisResult.DetectedFormat == "ZIP archive")
+                {
+                    var projectSummary = await vtzProjectReader.ReadAsync(projectFilePath);
+
+                    Console.WriteLine("VTZ project summary complete.");
+                    Console.WriteLine($"Environment.xml found : {projectSummary.EnvironmentXmlFound}");
+                    Console.WriteLine($"SmartGraphics.xml found : {projectSummary.SmartGraphicsXmlFound}");
+                    Console.WriteLine($".vtx file found : {projectSummary.VtxFileFound}");
+                    Console.WriteLine($"Project summary report : {projectSummary.ReportPath}");
+                }
+            }
+
             Console.WriteLine("Upload started...");
 
-            var uploadOperationResult =
-                await videoTecClient.UploadProjectAsync(projectFilePath);
+            var deploymentResult =
+                await deploymentService.DeployProjectAsync(projectFilePath);
 
-            Console.WriteLine("Upload completed.");
-            Console.WriteLine($"Upload success : {uploadOperationResult.Success}");
-            Console.WriteLine($"Upload message : {uploadOperationResult.Message}");
+            Console.WriteLine();
+            Console.WriteLine("Deployment summary");
+            Console.WriteLine("------------------");
+            Console.WriteLine($"Deployment success : {deploymentResult.Success}");
+            Console.WriteLine($"Message : {deploymentResult.Message}");
+            Console.WriteLine($"Upload succeeded : {deploymentResult.UploadSucceeded}");
+            Console.WriteLine($"UI responsive : {deploymentResult.UiResponsive}");
 
-            if (uploadOperationResult.Data != null)
+            if (deploymentResult.UploadResult != null)
             {
-                Console.WriteLine($"HTTP status : {uploadOperationResult.Data.HttpStatusCode}");
-                Console.WriteLine($"Parsed server status : {uploadOperationResult.Data.ServerStatusInfo}");
+                Console.WriteLine($"HTTP status : {deploymentResult.UploadResult.HttpStatusCode}");
+                Console.WriteLine($"Parsed server status : {deploymentResult.UploadResult.ServerStatusInfo}");
+            }
+
+            if (deploymentResult.CurrentProjectInformation != null)
+            {
+                Console.WriteLine("Current project information:");
+                Console.WriteLine($"Project name : {deploymentResult.CurrentProjectInformation.ProjectName}");
+                Console.WriteLine($"Compiled on : {deploymentResult.CurrentProjectInformation.CompiledOn}");
+                Console.WriteLine($"Project file hash : {deploymentResult.CurrentProjectInformation.ProjectFileHash}");
+                Console.WriteLine($"Version : {deploymentResult.CurrentProjectInformation.Version}");
             }
 
             Console.WriteLine("Upload response saved to DebugOutput\\project_upload_response.*");
