@@ -13,11 +13,16 @@ public class HttpSession
     private readonly CookieContainer _cookieContainer = new();
     private readonly HttpClient _httpClient;
     private readonly DebugLogger _logger;
+    private readonly HttpSessionOptions _options;
     private string _crestXsrfToken = string.Empty;
 
-    public HttpSession(DebugLogger logger, string? baseUrl = null)
+    public HttpSession(
+        DebugLogger logger,
+        string? baseUrl = null,
+        HttpSessionOptions? options = null)
     {
         _logger = logger;
+        _options = options ?? new HttpSessionOptions();
 
         var handler = new HttpClientHandler
         {
@@ -104,8 +109,12 @@ public class HttpSession
             ApplyCommonHeaders(currentRequest);
 
             var requestUri = currentRequest.RequestUri ?? throw new InvalidOperationException("Request URI is required.");
-            _logger.Log($"Sending {currentRequest.Method} {requestUri}");
-            _logger.Log($"Request headers: {FormatHeaders(currentRequest)}");
+
+            if (_options.EnableDiagnostics)
+            {
+                _logger.Log($"Sending {currentRequest.Method} {requestUri}");
+                _logger.Log($"Request headers: {FormatHeaders(currentRequest)}");
+            }
 
             var stopwatch = Stopwatch.StartNew();
             var response = await _httpClient.SendAsync(currentRequest);
@@ -113,20 +122,26 @@ public class HttpSession
 
             CaptureCrestXsrfToken(response);
 
-            var content = await response.Content.ReadAsStringAsync();
+            var responseBytes = await response.Content.ReadAsByteArrayAsync();
+            ReplaceResponseContent(response, responseBytes);
+
             var responseUri = response.RequestMessage?.RequestUri ?? requestUri;
             var redirectTarget = response.Headers.Location?.ToString();
             var cookies = GetCookies(responseUri);
 
-            _logger.Log($"Elapsed time: {stopwatch.ElapsedMilliseconds} ms");
-            _logger.Log($"Response headers: {FormatHeaders(response)}");
+            if (_options.EnableDiagnostics)
+            {
+                _logger.Log($"Elapsed time: {stopwatch.ElapsedMilliseconds} ms");
+                _logger.Log($"Response headers: {FormatHeaders(response)}");
 
-            await _logger.SaveResponseAsync(
-                responseUri,
-                response,
-                content,
-                redirectTarget,
-                cookies);
+                await _logger.SaveDiagnosticResponseAsync(
+                    currentRequest,
+                    response,
+                    responseBytes,
+                    stopwatch.Elapsed,
+                    redirectTarget,
+                    cookies);
+            }
 
             if (!IsRedirect(response.StatusCode) || response.Headers.Location == null)
             {
@@ -294,6 +309,19 @@ public class HttpSession
                 _logger.Log("Captured CREST-XSRF-TOKEN response header for authenticated requests.");
             }
         }
+    }
+
+    private static void ReplaceResponseContent(HttpResponseMessage response, byte[] content)
+    {
+        var originalContent = response.Content;
+        var replacementContent = new ByteArrayContent(content);
+
+        foreach (var header in originalContent.Headers)
+        {
+            replacementContent.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        }
+
+        response.Content = replacementContent;
     }
 
     private static string FormatHeaders(HttpRequestMessage request)
