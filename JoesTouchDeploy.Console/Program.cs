@@ -47,10 +47,20 @@ internal class Program
 
             Console.WriteLine("Login successful.");
 
-            var deviceInformation =
+            var deviceInformationResult =
                 await videoTecClient.GetDeviceInformationAsync();
 
             Console.WriteLine();
+            Console.WriteLine($"Device information success : {deviceInformationResult.Success}");
+            Console.WriteLine($"Device information message : {deviceInformationResult.Message}");
+
+            if (!deviceInformationResult.Success || deviceInformationResult.Data == null)
+            {
+                return;
+            }
+
+            var deviceInformation = deviceInformationResult.Data;
+
             Console.WriteLine("Connected panel information:");
             Console.WriteLine($"Model : {deviceInformation.Model}");
             Console.WriteLine($"Serial : {deviceInformation.SerialNumber}");
@@ -78,13 +88,19 @@ internal class Program
             Console.WriteLine($"Selected project file: {projectFilePath}");
             Console.WriteLine("Upload started...");
 
-            var uploadResult =
+            var uploadOperationResult =
                 await videoTecClient.UploadProjectAsync(projectFilePath);
 
             Console.WriteLine("Upload completed.");
-            Console.WriteLine($"HTTP status : {uploadResult.HttpStatusCode}");
-            Console.WriteLine($"Parsed server status : {uploadResult.ServerStatusInfo}");
-            Console.WriteLine($"Upload success : {uploadResult.Success}");
+            Console.WriteLine($"Upload success : {uploadOperationResult.Success}");
+            Console.WriteLine($"Upload message : {uploadOperationResult.Message}");
+
+            if (uploadOperationResult.Data != null)
+            {
+                Console.WriteLine($"HTTP status : {uploadOperationResult.Data.HttpStatusCode}");
+                Console.WriteLine($"Parsed server status : {uploadOperationResult.Data.ServerStatusInfo}");
+            }
+
             Console.WriteLine("Upload response saved to DebugOutput\\project_upload_response.*");
         }
         catch (Exception exception)

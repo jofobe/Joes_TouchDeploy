@@ -1,3 +1,4 @@
+using System.Text.Json;
 using JoesTouchDeploy.Core.Logging;
 using JoesTouchDeploy.Core.Logging;
 using JoesTouchDeploy.Core.Models;
@@ -42,23 +43,81 @@ public class VideoTecClient
         }
     }
 
-    public Task<ProjectUploadResult> UploadProjectAsync(string filePath)
+    public async Task<OperationResult<ProjectUploadResult>> UploadProjectAsync(string filePath)
     {
         if (_authenticationResult?.Success != true)
         {
             throw new InvalidOperationException("Login must complete before uploading a project.");
         }
 
-        return _projectUploadService.UploadProjectAsync(filePath);
+        try
+        {
+            var uploadResult = await _projectUploadService.UploadProjectAsync(filePath);
+
+            return new OperationResult<ProjectUploadResult>
+            {
+                Success = uploadResult.Success,
+                Message = uploadResult.ServerStatusInfo,
+                Data = uploadResult
+            };
+        }
+        catch (ArgumentException exception)
+        {
+            return CreateFailure<ProjectUploadResult>(exception.Message, exception);
+        }
+        catch (FileNotFoundException exception)
+        {
+            return CreateFailure<ProjectUploadResult>(exception.Message, exception);
+        }
+        catch (HttpRequestException exception)
+        {
+            return CreateFailure<ProjectUploadResult>(exception.Message, exception);
+        }
+        catch (TaskCanceledException exception)
+        {
+            return CreateFailure<ProjectUploadResult>("The project upload timed out.", exception);
+        }
     }
 
-    public Task<DeviceInformation> GetDeviceInformationAsync()
+    public async Task<OperationResult<DeviceInformation>> GetDeviceInformationAsync()
     {
         if (_authenticationResult?.Success != true)
         {
             throw new InvalidOperationException("Login must complete before retrieving device information.");
         }
 
-        return _deviceInformationService.GetDeviceInformationAsync();
+        try
+        {
+            var deviceInformation = await _deviceInformationService.GetDeviceInformationAsync();
+
+            return new OperationResult<DeviceInformation>
+            {
+                Success = true,
+                Message = "Device information retrieved successfully.",
+                Data = deviceInformation
+            };
+        }
+        catch (HttpRequestException exception)
+        {
+            return CreateFailure<DeviceInformation>(exception.Message, exception);
+        }
+        catch (JsonException exception)
+        {
+            return CreateFailure<DeviceInformation>("Device information response could not be parsed.", exception);
+        }
+        catch (TaskCanceledException exception)
+        {
+            return CreateFailure<DeviceInformation>("The device information request timed out.", exception);
+        }
+    }
+
+    private static OperationResult<T> CreateFailure<T>(string message, Exception exception)
+    {
+        return new OperationResult<T>
+        {
+            Success = false,
+            Message = message,
+            Exception = exception
+        };
     }
 }
