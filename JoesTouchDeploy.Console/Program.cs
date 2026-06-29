@@ -47,6 +47,17 @@ internal class Program
 
             Console.WriteLine("Login successful.");
 
+            var deviceInformation =
+                await videoTecClient.GetDeviceInformationAsync();
+
+            Console.WriteLine();
+            Console.WriteLine("Connected panel information:");
+            Console.WriteLine($"Model : {deviceInformation.Model}");
+            Console.WriteLine($"Serial : {deviceInformation.SerialNumber}");
+            Console.WriteLine($"Host name : {deviceInformation.HostName}");
+            Console.WriteLine($"Firmware : {deviceInformation.FirmwareVersion}");
+            Console.WriteLine($"MAC address : {deviceInformation.MacAddress}");
+
             Console.WriteLine();
             Console.WriteLine("Select the VTZ project file to upload.");
 
