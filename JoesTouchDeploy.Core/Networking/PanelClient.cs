@@ -35,8 +35,6 @@ public class PanelClient
     {
         var response = await _httpClient.GetAsync($"https://{ipAddress}/index_device.html");
 
-        Console.WriteLine($"Device Page Status: {(int)response.StatusCode}");
-
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadAsStringAsync();
