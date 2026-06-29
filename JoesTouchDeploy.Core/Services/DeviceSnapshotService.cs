@@ -50,7 +50,7 @@ public class DeviceSnapshotService
 
     private async Task<JsonNode?> GetJsonAsync(string url)
     {
-        var response = await _httpSession.GetAsync(url);
+        var response = await _httpSession.GetSessionResponseAsync(url);
 
         try
         {

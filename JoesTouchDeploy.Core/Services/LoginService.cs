@@ -1,4 +1,4 @@
-using JoesTouchDeploy.Core.Logging;
+using System.Net;
 using JoesTouchDeploy.Core.Logging;
 using JoesTouchDeploy.Core.Models;
 using JoesTouchDeploy.Core.Networking;
@@ -7,6 +7,8 @@ namespace JoesTouchDeploy.Core.Services;
 
 public class LoginService
 {
+    private const string LoginPath = "/userlogin.html";
+
     private readonly HttpSession _httpSession;
     private readonly DebugLogger _logger;
 
@@ -19,53 +21,53 @@ public class LoginService
     public async Task<AuthenticationResult> LoginAsync(PanelConnection connection)
     {
         var baseUrl = $"https://{connection.IpAddress}";
-        var loginUrl = $"{baseUrl}/userlogin.html";
+        var loginUrl = $"{baseUrl}{LoginPath}";
 
-        await _httpSession.GetAsync(loginUrl);
+        await _httpSession.GetAsync(LoginPath);
 
-        var postResponse = await _httpSession.PostFormAsync(
-            loginUrl,
-            new Dictionary<string, string>
-            {
-                { "login", connection.Username },
-                { "passwd", connection.Password }
-            },
-            new Dictionary<string, string>
-            {
-                { "X-Requested-With", "XMLHttpRequest" },
-                { "Origin", baseUrl },
-                { "Referer", loginUrl }
-            });
+        using var request = new HttpRequestMessage(HttpMethod.Post, LoginPath)
+        {
+            Content = new FormUrlEncodedContent(
+                new Dictionary<string, string>
+                {
+                    { "login", connection.Username },
+                    { "passwd", connection.Password }
+                })
+        };
 
+        request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+        request.Headers.TryAddWithoutValidation("Origin", baseUrl);
+        request.Headers.Referrer = new Uri(loginUrl);
+
+        var postResponse = await _httpSession.SendAsync(request);
         var cookies = _httpSession.GetCookies(new Uri(baseUrl));
         var success = cookies["userstr"] != null;
         var landingResponse = success
-            ? await DetermineLandingPageAsync(baseUrl, postResponse)
+            ? await DetermineLandingPageAsync(postResponse)
             : postResponse;
 
         return new AuthenticationResult
         {
             Success = success,
             Message = postResponse.StatusCode.ToString(),
-            FinalUrl = postResponse.FinalUrl.ToString(),
-            LandingPageUrl = landingResponse.FinalUrl.ToString()
+            FinalUrl = GetResponseUrl(postResponse).ToString(),
+            LandingPageUrl = GetResponseUrl(landingResponse).ToString()
         };
     }
 
-    private async Task<HttpSessionResponse> DetermineLandingPageAsync(
-        string baseUrl,
-        HttpSessionResponse postResponse)
+    private async Task<HttpResponseMessage> DetermineLandingPageAsync(
+        HttpResponseMessage postResponse)
     {
-        if (!IsLoginPage(postResponse.FinalUrl) && postResponse.IsHtml)
+        if (!IsLoginPage(GetResponseUrl(postResponse)) && IsHtml(postResponse))
         {
             return postResponse;
         }
 
         var candidates = new[]
         {
-            $"{baseUrl}/index.html",
-            $"{baseUrl}/index_device.html",
-            $"{baseUrl}/"
+            "/index.html",
+            "/index_device.html",
+            "/"
         };
 
         foreach (var candidate in candidates)
@@ -74,9 +76,9 @@ public class LoginService
             {
                 var response = await _httpSession.GetAsync(candidate);
 
-                if (IsSuccessful(response) && response.IsHtml && !IsLoginPage(response.FinalUrl))
+                if (response.StatusCode == HttpStatusCode.OK && IsHtml(response) && !IsLoginPage(GetResponseUrl(response)))
                 {
-                    _logger.Log($"Landing page candidate accepted: {response.FinalUrl}");
+                    _logger.Log($"Landing page candidate accepted: {GetResponseUrl(response)}");
                     return response;
                 }
             }
@@ -90,18 +92,25 @@ public class LoginService
             }
         }
 
-        _logger.Log($"Using login POST final URL as landing page: {postResponse.FinalUrl}");
+        _logger.Log($"Using login POST final URL as landing page: {GetResponseUrl(postResponse)}");
         return postResponse;
     }
 
-    private static bool IsSuccessful(HttpSessionResponse response)
+    private static Uri GetResponseUrl(HttpResponseMessage response)
     {
-        var statusCode = (int)response.StatusCode;
-        return statusCode >= 200 && statusCode <= 299;
+        return response.RequestMessage?.RequestUri ?? new Uri(LoginPath, UriKind.Relative);
+    }
+
+    private static bool IsHtml(HttpResponseMessage response)
+    {
+        var contentType = response.Content.Headers.ContentType?.ToString() ?? string.Empty;
+
+        return contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) ||
+            contentType.Contains("application/xhtml", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsLoginPage(Uri url)
     {
-        return url.AbsolutePath.Contains("userlogin", StringComparison.OrdinalIgnoreCase);
+        return url.ToString().Contains("userlogin", StringComparison.OrdinalIgnoreCase);
     }
 }

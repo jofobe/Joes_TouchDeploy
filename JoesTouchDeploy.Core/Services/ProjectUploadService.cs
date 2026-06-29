@@ -40,16 +40,21 @@ public class ProjectUploadService
 
         LogRequest(uploadUri, fileName);
 
-        var response = await _httpSession.PostMultipartAsync(
-            uploadUri.ToString(),
-            () => CreateMultipartContent(filePath, fileName),
-            CreateUploadHeaders());
+        using var request = new HttpRequestMessage(HttpMethod.Post, UploadEndpoint)
+        {
+            Content = CreateMultipartContent(filePath, fileName)
+        };
 
-        await SaveUploadResponseAsync(response.Content);
+        ApplyUploadHeaders(request);
 
-        var uploadResponse = DeserializeResponse(response.Content);
+        var response = await _httpSession.SendAsync(request);
+        var responseJson = await response.Content.ReadAsStringAsync();
+
+        await SaveUploadResponseAsync(responseJson);
+
+        var uploadResponse = DeserializeResponse(responseJson);
         var statusInfo = GetUploadProjectStatusInfo(uploadResponse) ??
-            GetFallbackStatusInfo(response);
+            GetFallbackStatusInfo(response, responseJson);
 
         _logger.Log($"Upload response status info: {(string.IsNullOrWhiteSpace(statusInfo) ? "none" : statusInfo)}");
 
@@ -58,7 +63,7 @@ public class ProjectUploadService
             HttpStatusCode = (int)response.StatusCode,
             ServerStatusInfo = statusInfo,
             Success = statusInfo.Equals(SuccessStatusInfo, StringComparison.Ordinal),
-            ResponseJson = response.Content
+            ResponseJson = responseJson
         };
     }
 
@@ -104,28 +109,14 @@ public class ProjectUploadService
         _logger.Log("Project upload file content is binary and will not be logged.");
     }
 
-    private Dictionary<string, string> CreateUploadHeaders()
+    private void ApplyUploadHeaders(HttpRequestMessage request)
     {
-        var headers = new Dictionary<string, string>
-        {
-            { "Accept", "application/json, text/plain, */*" },
-            { "Cache-Control", "no-cache" },
-            { "Origin", _baseUri.ToString().TrimEnd('/') },
-            { "Pragma", "no-cache" },
-            { "Referer", _baseUri.ToString() },
-            { "X-File-Upload", "true" }
-        };
-
-        if (!string.IsNullOrWhiteSpace(_httpSession.CrestXsrfToken))
-        {
-            headers.Add("X-CREST-XSRF-TOKEN", _httpSession.CrestXsrfToken);
-        }
-        else
-        {
-            _logger.Log("Warning: CREST-XSRF-TOKEN was not captured before upload.");
-        }
-
-        return headers;
+        request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
+        request.Headers.TryAddWithoutValidation("Cache-Control", "no-cache");
+        request.Headers.TryAddWithoutValidation("Origin", _baseUri.ToString().TrimEnd('/'));
+        request.Headers.TryAddWithoutValidation("Pragma", "no-cache");
+        request.Headers.Referrer = _baseUri;
+        request.Headers.TryAddWithoutValidation("X-File-Upload", "true");
     }
 
     private async Task SaveUploadResponseAsync(string responseJson)
@@ -183,14 +174,14 @@ public class ProjectUploadService
             : "project_upload_response.txt";
     }
 
-    private static string GetFallbackStatusInfo(HttpSessionResponse response)
+    private static string GetFallbackStatusInfo(HttpResponseMessage response, string content)
     {
-        if (response.Content.Trim().Equals("null", StringComparison.OrdinalIgnoreCase))
+        if (content.Trim().Equals("null", StringComparison.OrdinalIgnoreCase))
         {
             return $"Server returned null: {(int)response.StatusCode} {response.StatusCode}";
         }
 
-        if (!string.IsNullOrWhiteSpace(response.Content))
+        if (!string.IsNullOrWhiteSpace(content))
         {
             return $"Non-JSON response from server: {(int)response.StatusCode} {response.StatusCode}";
         }

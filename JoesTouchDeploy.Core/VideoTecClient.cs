@@ -18,7 +18,9 @@ public class VideoTecClient
     {
         _connection = connection;
 
-        var httpSession = new HttpSession(logger);
+        var httpSession = new HttpSession(
+            logger,
+            $"https://{connection.IpAddress}");
 
         _loginService = new LoginService(httpSession, logger);
         _deviceInformationService = new DeviceInformationService(

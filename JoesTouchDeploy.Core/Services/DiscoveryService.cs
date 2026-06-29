@@ -98,7 +98,7 @@ public class DiscoveryService
 
             try
             {
-                var response = await _httpSession.GetAsync(normalizedUrl);
+                var response = await _httpSession.GetSessionResponseAsync(normalizedUrl);
                 result.VisitedUrls.Add(response.FinalUrl);
 
                 AddTargetedProbeResult(result, response);

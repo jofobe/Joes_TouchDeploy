@@ -1,4 +1,4 @@
-using System.Net;
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using JoesTouchDeploy.Core.Logging;
@@ -15,7 +15,7 @@ public class HttpSession
     private readonly DebugLogger _logger;
     private string _crestXsrfToken = string.Empty;
 
-    public HttpSession(DebugLogger logger)
+    public HttpSession(DebugLogger logger, string? baseUrl = null)
     {
         _logger = logger;
 
@@ -31,6 +31,11 @@ public class HttpSession
         {
             Timeout = TimeSpan.FromMinutes(5)
         };
+
+        if (!string.IsNullOrWhiteSpace(baseUrl))
+        {
+            _httpClient.BaseAddress = new Uri(baseUrl);
+        }
     }
 
     public CookieCollection GetCookies(Uri uri)
@@ -40,36 +45,117 @@ public class HttpSession
 
     public string CrestXsrfToken => _crestXsrfToken;
 
-    public Task<HttpSessionResponse> GetAsync(string url)
+    public Task<HttpResponseMessage> GetAsync(string relativeUrl)
     {
-        return SendAsync(HttpMethod.Get, new Uri(url), null, null);
+        return SendAsync(new HttpRequestMessage(HttpMethod.Get, CreateUri(relativeUrl)));
     }
 
-    public Task<HttpSessionResponse> PostFormAsync(
+    public Task<HttpResponseMessage> PostAsync(string relativeUrl, HttpContent content)
+    {
+        return SendAsync(new HttpRequestMessage(HttpMethod.Post, CreateUri(relativeUrl))
+        {
+            Content = content
+        });
+    }
+
+    public Task<HttpResponseMessage> SendAsync(HttpRequestMessage request)
+    {
+        return SendRequestAsync(request, ensureSuccessStatusCode: true);
+    }
+
+    public Task<HttpSessionResponse> GetSessionResponseAsync(string url)
+    {
+        return SendSessionResponseAsync(HttpMethod.Get, CreateUri(url), null, null);
+    }
+
+    public Task<HttpSessionResponse> PostFormSessionResponseAsync(
         string url,
         Dictionary<string, string> formValues,
         Dictionary<string, string>? headers = null)
     {
-        return SendAsync(
+        return SendSessionResponseAsync(
             HttpMethod.Post,
-            new Uri(url),
+            CreateUri(url),
             () => new FormUrlEncodedContent(formValues),
             headers);
     }
 
-    public Task<HttpSessionResponse> PostMultipartAsync(
+    public Task<HttpSessionResponse> PostMultipartSessionResponseAsync(
         string url,
         Func<MultipartFormDataContent> contentFactory,
         Dictionary<string, string>? headers = null)
     {
-        return SendAsync(
+        return SendSessionResponseAsync(
             HttpMethod.Post,
-            new Uri(url),
+            CreateUri(url),
             contentFactory,
             headers);
     }
 
-    private async Task<HttpSessionResponse> SendAsync(
+    private async Task<HttpResponseMessage> SendRequestAsync(
+        HttpRequestMessage request,
+        bool ensureSuccessStatusCode)
+    {
+        var currentRequest = request;
+
+        for (var redirectCount = 0; redirectCount <= MaxRedirects; redirectCount++)
+        {
+            EnsureAbsoluteRequestUri(currentRequest);
+            ApplyCommonHeaders(currentRequest);
+
+            var requestUri = currentRequest.RequestUri ?? throw new InvalidOperationException("Request URI is required.");
+            _logger.Log($"Sending {currentRequest.Method} {requestUri}");
+            _logger.Log($"Request headers: {FormatHeaders(currentRequest)}");
+
+            var stopwatch = Stopwatch.StartNew();
+            var response = await _httpClient.SendAsync(currentRequest);
+            stopwatch.Stop();
+
+            CaptureCrestXsrfToken(response);
+
+            var content = await response.Content.ReadAsStringAsync();
+            var responseUri = response.RequestMessage?.RequestUri ?? requestUri;
+            var redirectTarget = response.Headers.Location?.ToString();
+            var cookies = GetCookies(responseUri);
+
+            _logger.Log($"Elapsed time: {stopwatch.ElapsedMilliseconds} ms");
+            _logger.Log($"Response headers: {FormatHeaders(response)}");
+
+            await _logger.SaveResponseAsync(
+                responseUri,
+                response,
+                content,
+                redirectTarget,
+                cookies);
+
+            if (!IsRedirect(response.StatusCode) || response.Headers.Location == null)
+            {
+                if (ensureSuccessStatusCode && !response.IsSuccessStatusCode)
+                {
+                    throw new HttpRequestException(
+                        $"HTTP request failed: {(int)response.StatusCode} {response.StatusCode} for {requestUri}",
+                        null,
+                        response.StatusCode);
+                }
+
+                return response;
+            }
+
+            var redirectUrl = ResolveRedirectUrl(responseUri, response.Headers.Location);
+
+            if (response.StatusCode is HttpStatusCode.Moved or HttpStatusCode.Redirect or HttpStatusCode.SeeOther)
+            {
+                currentRequest = new HttpRequestMessage(HttpMethod.Get, redirectUrl);
+                continue;
+            }
+
+            throw new InvalidOperationException($"Redirect preserving request content is not supported for {requestUri}.");
+        }
+
+        throw new InvalidOperationException($"Maximum redirect count exceeded for {request.RequestUri}.");
+    }
+
+    private async Task<HttpSessionResponse> SendSessionResponseAsync(
         HttpMethod method,
         Uri url,
         Func<HttpContent>? contentFactory,
@@ -96,22 +182,9 @@ public class HttpSession
                 }
             }
 
-            _logger.Log($"Sending {currentMethod} {currentUrl}");
-            _logger.Log($"Request headers: {FormatHeaders(request)}");
-
-            using var response = await _httpClient.SendAsync(request);
-            CaptureCrestXsrfToken(response);
-
+            using var response = await SendRequestAsync(request, ensureSuccessStatusCode: false);
             var content = await response.Content.ReadAsStringAsync();
             var redirectTarget = response.Headers.Location?.ToString();
-            var cookies = GetCookies(currentUrl);
-
-            await _logger.SaveResponseAsync(
-                currentUrl,
-                response,
-                content,
-                redirectTarget,
-                cookies);
 
             if (!IsRedirect(response.StatusCode) || response.Headers.Location == null)
             {
@@ -129,6 +202,49 @@ public class HttpSession
         }
 
         throw new InvalidOperationException($"Maximum redirect count exceeded for {url}.");
+    }
+
+    private Uri CreateUri(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var absoluteUri))
+        {
+            return absoluteUri;
+        }
+
+        if (_httpClient.BaseAddress == null)
+        {
+            throw new InvalidOperationException("A base address is required for relative URLs.");
+        }
+
+        return new Uri(_httpClient.BaseAddress, url);
+    }
+
+    private void EnsureAbsoluteRequestUri(HttpRequestMessage request)
+    {
+        if (request.RequestUri == null)
+        {
+            throw new InvalidOperationException("Request URI is required.");
+        }
+
+        if (request.RequestUri.IsAbsoluteUri)
+        {
+            return;
+        }
+
+        if (_httpClient.BaseAddress == null)
+        {
+            throw new InvalidOperationException("A base address is required for relative URLs.");
+        }
+
+        request.RequestUri = new Uri(_httpClient.BaseAddress, request.RequestUri);
+    }
+
+    private void ApplyCommonHeaders(HttpRequestMessage request)
+    {
+        if (!string.IsNullOrWhiteSpace(_crestXsrfToken) && !request.Headers.Contains("X-CREST-XSRF-TOKEN"))
+        {
+            request.Headers.TryAddWithoutValidation("X-CREST-XSRF-TOKEN", _crestXsrfToken);
+        }
     }
 
     private static HttpSessionResponse CreateSessionResponse(
@@ -191,6 +307,20 @@ public class HttpSession
             headers.AddRange(request.Content.Headers
                 .Select(header => $"{header.Key}: {string.Join(", ", header.Value)}"));
         }
+
+        return headers.Count == 0
+            ? "none"
+            : string.Join("; ", headers);
+    }
+
+    private static string FormatHeaders(HttpResponseMessage response)
+    {
+        var headers = response.Headers
+            .Select(header => $"{header.Key}: {string.Join(", ", header.Value)}")
+            .ToList();
+
+        headers.AddRange(response.Content.Headers
+            .Select(header => $"{header.Key}: {string.Join(", ", header.Value)}"));
 
         return headers.Count == 0
             ? "none"

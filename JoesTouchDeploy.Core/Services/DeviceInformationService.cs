@@ -7,19 +7,17 @@ namespace JoesTouchDeploy.Core.Services;
 public class DeviceInformationService
 {
     private readonly HttpSession _httpSession;
-    private readonly Uri _baseUri;
 
     public DeviceInformationService(HttpSession httpSession, string ipAddress)
     {
         _httpSession = httpSession;
-        _baseUri = new Uri($"https://{ipAddress}");
     }
 
     public async Task<DeviceInformation> GetDeviceInformationAsync()
     {
-        var endpoint = new Uri(_baseUri, "/Device/DeviceInfo");
-        var response = await _httpSession.GetAsync(endpoint.ToString());
-        var deviceInformationResponse = JsonSerializer.Deserialize<DeviceInformationResponse>(response.Content);
+        var response = await _httpSession.GetAsync("/Device/DeviceInfo");
+        var content = await response.Content.ReadAsStringAsync();
+        var deviceInformationResponse = JsonSerializer.Deserialize<DeviceInformationResponse>(content);
         var deviceInfo = deviceInformationResponse?.Device?.DeviceInfo ??
             throw new InvalidOperationException("Device information response did not contain Device.DeviceInfo.");
 
